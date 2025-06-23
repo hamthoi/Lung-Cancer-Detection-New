@@ -2,13 +2,6 @@ import numpy as np
 from flask import Flask, request, jsonify
 from tensorflow.keras import layers, models # type: ignore
 
-# Optional: For GUI popup
-try:
-    from tkinter import Tk, messagebox
-    GUI_AVAILABLE = True
-except ImportError:
-    GUI_AVAILABLE = False
-
 app = Flask(__name__)
 
 # Global model definition (must match client)
@@ -53,18 +46,7 @@ def upload():
 
     # Update model
     global_model.set_weights(global_weights)
-    # Just print to console for server feedback
-    print(f"Received update: {num_samples} samples. Total: {total_samples}")
-
-    # Optional: Show popup (if running in an environment with a display)
-    if GUI_AVAILABLE:
-        try:
-            root = Tk()
-            root.withdraw()
-            messagebox.showinfo("Server", f"Received update: {num_samples} samples.\nTotal: {total_samples}")
-            root.destroy()
-        except Exception:
-            pass
+    print(f"[SERVER] Received update: {num_samples} samples. Total samples: {total_samples}")
 
     return jsonify({"status": "success", "total_samples": total_samples})
 
@@ -72,6 +54,7 @@ def upload():
 def download():
     # Send current global weights
     weights = [w.tolist() for w in global_model.get_weights()]
+    print("[SERVER] Sent global weights to client.")
     return jsonify({"weights": weights})
 
 @app.route('/test', methods=['POST'])
@@ -82,7 +65,9 @@ def test():
     y = np.array(data['y'])
     global_model.set_weights([np.array(w) for w in data.get('weights', global_model.get_weights())])
     loss, acc = global_model.evaluate(X, y, verbose=0)
+    print(f"[SERVER] Tested global model. Loss: {loss}, Accuracy: {acc}")
     return jsonify({"loss": float(loss), "accuracy": float(acc)})
 
 if __name__ == '__main__':
+    print("[SERVER] Federated server is running on port 5000...")
     app.run(host='0.0.0.0', port=5000)
