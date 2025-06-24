@@ -2,7 +2,7 @@ import pydicom
 import matplotlib.pyplot as plt
 
 # Load the DICOM file
-dcm = pydicom.dcmread('sample_images/00edff4f51a893d80dae2d42a7f45ad1/0c3ddf408c349ffc072004c92a97e903.dcm')
+dcm = pydicom.dcmread('sample_images/0a0c32c9e08cc2ea76a71649de56be6d/0a67f9edb4915467ac16a565955898d3.dcm')
 
 # Get the pixel array
 img = dcm.pixel_array

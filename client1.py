@@ -210,8 +210,10 @@ class LCD_CNN:
 
     def train_data(self):    
         imageData = np.load('processedData.npy', allow_pickle=True)
-        trainingData = imageData[0:45]
-        validationData = imageData[45:50]
+        num_samples = len(imageData)
+        split_idx = num_samples // 2
+        trainingData = imageData[:split_idx]
+        validationData = imageData[split_idx:]
 
         X_train = np.array([i[0] for i in trainingData])
         y_train = np.array([i[1] for i in trainingData])
