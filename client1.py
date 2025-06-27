@@ -211,7 +211,7 @@ class LCD_CNN:
     def train_data(self):    
         imageData = np.load('processedData.npy', allow_pickle=True)
         num_samples = len(imageData)
-        split_idx = num_samples // 2
+        split_idx = int(num_samples // 1.25)
         trainingData = imageData[:split_idx]
         validationData = imageData[split_idx:]
 
