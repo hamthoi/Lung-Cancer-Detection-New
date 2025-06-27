@@ -127,24 +127,37 @@ class LCD_CNN:
             return sum(l) / len(l)
         #Average
 
-        def dataProcessing(patient, labels_df, size=10, noslices=5, visualize=False):
-            label = labels_df._get_value(patient, 'cancer')
-            path = os.path.join(self.dataDirectory, patient)
-            slices = [dicom.dcmread(os.path.join(path, s)) for s in os.listdir(path)]
+        def dataProcessing(patient_folder, size=10, noslices=5, visualize=False):
+            # Determine label from folder name
+            if patient_folder.lower().startswith("cancer"):
+                label = np.array([0, 1])  # Cancer
+            elif patient_folder.lower().startswith("no_cancer"):
+                label = np.array([1, 0])  # No Cancer
+            else:
+                raise ValueError(f"Unknown label for folder: {patient_folder}")
+
+            path = os.path.join(self.dataDirectory, patient_folder)
+            slices = [dicom.dcmread(os.path.join(path, s)) for s in os.listdir(path) if s.endswith('.dcm')]
             slices.sort(key=lambda x: int(x.ImagePositionPatient[2]))
 
             new_slices = []
             slices = [cv2.resize(np.array(each_slice.pixel_array), (size, size)) for each_slice in slices]
 
-            chunk_sizes = math.floor(len(slices) / noslices)
+            chunk_sizes = max(1, math.floor(len(slices) / noslices))
+            def chunks(l, n):
+                count = 0
+                for i in range(0, len(l), n):
+                    if (count < noslices):
+                        yield l[i:i + n]
+                        count = count + 1
+
+            def mean(l):
+                return sum(l) / len(l)
+
             for slice_chunk in chunks(slices, chunk_sizes):
                 slice_chunk = list(map(mean, zip(*slice_chunk)))
                 new_slices.append(slice_chunk)
 
-            if label == 1: #Cancer Patient
-                label = np.array([0, 1])
-            elif label == 0:    #Non Cancerous Patient
-                label = np.array([1, 0])
             return np.array(new_slices), label
 
         imageData = []
@@ -153,7 +166,7 @@ class LCD_CNN:
             if num % 50 == 0:
                 print('Saved -', num)
             try:
-                img_data, label = dataProcessing(patient, self.labels, size=self.size, noslices=self.NoSlices)
+                img_data, label = dataProcessing(patient, size=self.size, noslices=self.NoSlices)
                 imageData.append([img_data, label, patient])
             except KeyError as e:
                 print('Data is unlabeled')
@@ -188,11 +201,13 @@ class LCD_CNN:
         except Exception as e:
             messagebox.showerror("Federated Update", f"Failed to send update to server:\n{e}")
 
-    def wait_for_global_weights(self, poll_interval=10):
+    def wait_for_global_weights(self, poll_interval=10, max_errors=3):
         """
         Poll the server for new global weights, waiting until available.
-        Returns the weights when available.
+        If the server is unreachable for max_errors times, ask the user if they want to keep waiting.
+        Returns the weights when available, or None if the user chooses not to wait.
         """
+        consecutive_errors = 0
         while True:
             try:
                 response = requests.get("http://localhost:5000/download")
@@ -202,16 +217,30 @@ class LCD_CNN:
                         return [np.array(w) for w in data["weights"]]
                     else:
                         print("Waiting for server to broadcast global weights...")
+                    consecutive_errors = 0  # Reset error count on success
                 else:
                     print("Server responded with error, retrying...")
+                    consecutive_errors += 1
             except Exception as e:
                 print(f"Error while polling for global weights: {e}")
+                consecutive_errors += 1
+
+            if consecutive_errors >= max_errors:
+                # Ask the user if they want to keep waiting
+                keep_waiting = messagebox.askyesno(
+                    "Server Down",
+                    "The server is down, do you want to keep waiting for the server or just train and use the local model?\n\nYes: Keep waiting\nNo: Use local model"
+                )
+                if not keep_waiting:
+                    return None
+                consecutive_errors = 0  # Reset error count if user wants to keep waiting
+
             time.sleep(poll_interval)
 
     def train_data(self):    
         imageData = np.load('processedData.npy', allow_pickle=True)
         num_samples = len(imageData)
-        split_idx = int(num_samples // 1.25)
+        split_idx = int(num_samples // 1.25)  # or use num_samples // 2 for 50%
         trainingData = imageData[:split_idx]
         validationData = imageData[split_idx:]
 
@@ -321,11 +350,13 @@ class LCD_CNN:
         # --- Wait for global weights from server and set them ---
         self.root.after(0, lambda: messagebox.showinfo("Global Model", "Waiting for server to broadcast global weights..."))
         global_weights = self.wait_for_global_weights()
-        self.model.set_weights(global_weights)
-
-        # Test the global model
-        val_loss, val_acc = self.model.evaluate(X_val, y_val)
-        print(f'Validation accuracy from global weights: {val_acc}')
+        if global_weights is not None:
+            self.model.set_weights(global_weights)
+            val_loss, val_acc = self.model.evaluate(X_val, y_val)
+            print(f'Validation accuracy from global weights: {val_acc}')
+        else:
+            messagebox.showwarning("Global Model", "Using local model weights as server is unavailable.")
+            # Continue using local model
 
         ## Function to plot confusion matrix
         def plot_confusion_matrix(df_confusion, title='Confusion matrix', cmap=plt.cm.gray_r):
