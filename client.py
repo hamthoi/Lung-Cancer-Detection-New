@@ -73,7 +73,7 @@ class LCD_CNN:
         self.b3.config(cursor="arrow")
 
         #button 4
-        self.b4 = Button(text="Test Image", cursor="hand2", command=self.test_image, font=("Times New Roman",15,"bold"), bg="white", fg="black")
+        self.b4 = Button(text="Diagnose Patient", cursor="hand2", command=self.diagnose_patient, font=("Times New Roman",15,"bold"), bg="white", fg="black")
         self.b4.place(x=80, y=280, width=180, height=30)
         self.b4["state"] = "normal"
         self.b4.config(cursor="hand2")
@@ -382,22 +382,37 @@ class LCD_CNN:
             plt.show()
         plot_confusion_matrix(df_confusion)
 
-    def test_image(self):
+    def diagnose_patient(self):
         def run_prediction():
-            # Let user select a DICOM file
-            file_path = filedialog.askopenfilename(title="Select DICOM file", filetypes=[("DICOM files", "*.dcm")])
-            if not file_path:
+            # Let user select a patient folder
+            folder_path = filedialog.askdirectory(title="Select Patient Folder")
+            if not folder_path:
                 return
 
-            # Preprocess the image (resize, normalize, etc.)
-            dcm = dicom.dcmread(file_path)
-            img = cv2.resize(np.array(dcm.pixel_array), (self.size, self.size))
-            img = img.astype(np.float32)
-            img = img / np.max(img)  # normalize if needed
+            # Load and preprocess all DICOM slices in the folder
+            slices = [dicom.dcmread(os.path.join(folder_path, s)) for s in os.listdir(folder_path) if s.endswith('.dcm')]
+            if not slices:
+                self.root.after(0, lambda: messagebox.showerror("Error", "No DICOM files found in the selected folder."))
+                return
+            slices.sort(key=lambda x: int(x.ImagePositionPatient[2]))
+            slices = [cv2.resize(np.array(each_slice.pixel_array), (self.size, self.size)) for each_slice in slices]
 
-            # If your model expects a stack of slices, you may need to duplicate or pad
-            slices = np.stack([img]*self.NoSlices, axis=0)
-            slices = slices[np.newaxis, ..., np.newaxis]  # shape: (1, NoSlices, size, size, 1)
+            # Chunk and average as in dataProcessing
+            chunk_sizes = max(1, math.floor(len(slices) / self.NoSlices))
+            def chunks(l, n):
+                count = 0
+                for i in range(0, len(l), n):
+                    if (count < self.NoSlices):
+                        yield l[i:i + n]
+                        count = count + 1
+            def mean(l):
+                return sum(l) / len(l)
+            new_slices = []
+            for slice_chunk in chunks(slices, chunk_sizes):
+                slice_chunk = list(map(mean, zip(*slice_chunk)))
+                new_slices.append(slice_chunk)
+            patient_stack = np.array(new_slices)
+            patient_stack = patient_stack[np.newaxis, ..., np.newaxis]  # shape: (1, NoSlices, size, size, 1)
 
             # Try to get global weights from server
             used_global = False
@@ -413,7 +428,7 @@ class LCD_CNN:
                 print(f"Could not fetch global weights: {e}")
 
             # Predict
-            prediction = self.model.predict(slices)
+            prediction = self.model.predict(patient_stack)
             pred_class = np.argmax(prediction, axis=1)[0]
             result = "Cancer" if pred_class == 1 else "No Cancer"
 
@@ -423,7 +438,7 @@ class LCD_CNN:
             else:
                 msg += "(Used latest local model weights)"
 
-            self.root.after(0, lambda: messagebox.showinfo("Prediction Result", msg))
+            self.root.after(0, lambda: messagebox.showinfo("Diagnosis Result", msg))
 
         # Run prediction in a separate thread
         threading.Thread(target=run_prediction).start()
