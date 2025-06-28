@@ -237,7 +237,26 @@ class LCD_CNN:
 
             time.sleep(poll_interval)
 
-    def train_data(self):    
+    def train_data(self):
+        # --- Download and set global weights before training ---
+        global_weights = self.wait_for_global_weights()
+        if global_weights is not None:
+            self.model.set_weights(global_weights)
+            print("Loaded global weights from server before training.")
+        else:
+            print("No global weights available, training from scratch.")
+            # Reinitialize model weights (from scratch)
+            input_shape = (self.NoSlices, self.size, self.size, 1)
+            self.model = models.Sequential([
+                layers.Conv3D(32, (3, 3, 3), activation='relu', padding='same', input_shape=input_shape),
+                layers.MaxPooling3D((2, 2, 2)),
+                layers.Conv3D(64, (3, 3, 3), activation='relu', padding='same'),
+                layers.MaxPooling3D((2, 2, 2)),
+                layers.Flatten(),
+                layers.Dense(128, activation='relu'),
+                layers.Dropout(0.5),
+                layers.Dense(2, activation='softmax')
+            ])
         imageData = np.load('processedData.npy', allow_pickle=True)
         trainingData = imageData[0:45]
         validationData = imageData[45:50]
@@ -252,12 +271,6 @@ class LCD_CNN:
 
         
         self.model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-
-        # --- Keep initial weights for every training ---
-        if self.initial_weights is None:
-            self.initial_weights = self.model.get_weights()
-        else:
-            self.model.set_weights(self.initial_weights)
 
         # --- Save the best model during training ---
         checkpoint_path = "best_model.weights.h5"
@@ -386,12 +399,31 @@ class LCD_CNN:
             slices = np.stack([img]*self.NoSlices, axis=0)
             slices = slices[np.newaxis, ..., np.newaxis]  # shape: (1, NoSlices, size, size, 1)
 
+            # Try to get global weights from server
+            used_global = False
+            try:
+                response = requests.get("http://localhost:5000/download", timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data["weights"] is not None:
+                        global_weights = [np.array(w) for w in data["weights"]]
+                        self.model.set_weights(global_weights)
+                        used_global = True
+            except Exception as e:
+                print(f"Could not fetch global weights: {e}")
+
             # Predict
             prediction = self.model.predict(slices)
             pred_class = np.argmax(prediction, axis=1)[0]
             result = "Cancer" if pred_class == 1 else "No Cancer"
 
-            self.root.after(0, lambda: messagebox.showinfo("Prediction Result", f"The model predicts: {result}"))
+            msg = f"The model predicts: {result}\n"
+            if used_global:
+                msg += "(Used global model from server)"
+            else:
+                msg += "(Used latest local model weights)"
+
+            self.root.after(0, lambda: messagebox.showinfo("Prediction Result", msg))
 
         # Run prediction in a separate thread
         threading.Thread(target=run_prediction).start()
