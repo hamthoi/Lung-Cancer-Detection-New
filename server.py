@@ -34,14 +34,21 @@ if os.path.exists("global_model.weights.h5"):
     print("[SERVER] Loaded global model weights from disk.")
 new_weights = global_model.get_weights()
 
-# Load validation data (same as client)
+# Load validation data (same as client, but randomly select 5 patients)
 val_data = np.load("processedData.npy", allow_pickle=True)
-validationData = val_data[45:50]
+np.random.shuffle(val_data)  # Shuffle the patient order
+validationData = val_data[:5]  # Pick first 5 after shuffle
 X_val = np.array([i[0] for i in validationData])
 y_val = np.array([i[1] for i in validationData])
 X_val = X_val[..., np.newaxis]
 
 def evaluate_on_val(model):
+    val_data = np.load("processedData.npy", allow_pickle=True)
+    np.random.shuffle(val_data)
+    validationData = val_data[:5]
+    X_val = np.array([i[0] for i in validationData])
+    y_val = np.array([i[1] for i in validationData])
+    X_val = X_val[..., np.newaxis]
     loss, acc = model.evaluate(X_val, y_val, verbose=0)
     return acc
 

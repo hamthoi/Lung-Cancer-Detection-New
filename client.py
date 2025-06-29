@@ -258,6 +258,7 @@ class LCD_CNN:
                 layers.Dense(2, activation='softmax')
             ])
         imageData = np.load('processedData.npy', allow_pickle=True)
+        np.random.shuffle(imageData)
         trainingData = imageData[0:45]
         validationData = imageData[45:50]
 
