@@ -270,29 +270,19 @@ class LCD_CNN:
         X_train = X_train[..., np.newaxis]
         X_val = X_val[..., np.newaxis]
 
-        
         self.model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
 
-        # --- Save the best model during training ---
-        checkpoint_path = "best_model.weights.h5"
-        checkpoint = ModelCheckpoint(
-            checkpoint_path, monitor='val_accuracy', save_best_only=True, save_weights_only=True, mode='max', verbose=0
-        )
-
+        # --- Train the model (no ModelCheckpoint) ---
         history = self.model.fit(
             X_train, y_train,
             epochs=20,
             batch_size=4,
             validation_data=(X_val, y_val),
-            verbose=1,
-            callbacks=[checkpoint]
+            verbose=1
         )
 
-        # Load the best weights before evaluation and sending to server
-        self.model.load_weights(checkpoint_path)
-
         val_loss, val_acc = self.model.evaluate(X_val, y_val)
-        print(f'Validation accuracy (best): {val_acc}')
+        print(f'Validation accuracy (final epoch): {val_acc}')
 
         predictions = self.model.predict(X_val)
         predicted_classes = np.argmax(predictions, axis=1)

@@ -58,12 +58,24 @@ def upload():
     weights = [np.array(w) for w in data['weights']]
     num_samples = data['num_samples']
     with lock:
-        # Evaluate current global model
-        current_acc = evaluate_on_val(global_model)
-        # Set new weights and evaluate
+        # Always use the same validation set for both evaluations
+        val_data = np.load("processedData.npy", allow_pickle=True)
+        np.random.seed(42)  # Ensure reproducibility for this upload
+        np.random.shuffle(val_data)
+        validationData = val_data[:5]
+        X_val = np.array([i[0] for i in validationData])
+        y_val = np.array([i[1] for i in validationData])
+        X_val = X_val[..., np.newaxis]
+
+        # Evaluate current global model (could be random weights if no global_model.weights.h5 exists)
+        current_acc = global_model.evaluate(X_val, y_val, verbose=0)[1]
+
+        # Evaluate client weights
         global_model.set_weights(weights)
-        new_acc = evaluate_on_val(global_model)
+        new_acc = global_model.evaluate(X_val, y_val, verbose=0)[1]
+
         print(f"[SERVER] Current global acc: {current_acc:.4f}, Client acc: {new_acc:.4f}")
+
         if new_acc > current_acc:
             global_model.save_weights("global_model.weights.h5")
             print("[SERVER] Updated global model with improved client weights.")
@@ -71,7 +83,7 @@ def upload():
             new_weights = global_model.get_weights()
             status = "accepted"
         else:
-            # Revert to previous weights
+            # Revert to previous weights if any
             if os.path.exists("global_model.weights.h5"):
                 global_model.load_weights("global_model.weights.h5")
             print("[SERVER] Disregarded client weights (no improvement).")
