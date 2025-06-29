@@ -3,12 +3,14 @@ from flask import Flask, request, jsonify
 import threading
 import os
 from tensorflow.keras import layers, models # type: ignore
+from datetime import datetime
 
 app = Flask(__name__)
 
 client_updates = []  # Each item: (weights, num_samples)
 lock = threading.Lock()
 new_weights = None  # Store only the latest aggregated weights
+connected_clients = set()  # Track connected clients
 
 # Define the model architecture (must match client)
 def build_model(input_shape):
@@ -34,79 +36,85 @@ if os.path.exists("global_model.weights.h5"):
     print("[SERVER] Loaded global model weights from disk.")
 new_weights = global_model.get_weights()
 
-# Load validation data (same as client, but randomly select 5 patients)
+# Load validation data (same as client)
 val_data = np.load("processedData.npy", allow_pickle=True)
-np.random.shuffle(val_data)  # Shuffle the patient order
-validationData = val_data[:5]  # Pick first 5 after shuffle
+validationData = val_data[45:50]
 X_val = np.array([i[0] for i in validationData])
 y_val = np.array([i[1] for i in validationData])
 X_val = X_val[..., np.newaxis]
 
 def evaluate_on_val(model):
-    val_data = np.load("processedData.npy", allow_pickle=True)
-    np.random.shuffle(val_data)
-    validationData = val_data[:5]
-    X_val = np.array([i[0] for i in validationData])
-    y_val = np.array([i[1] for i in validationData])
-    X_val = X_val[..., np.newaxis]
     loss, acc = model.evaluate(X_val, y_val, verbose=0)
     return acc
 
+def log_connection(client_ip):
+    """Log client connection with timestamp"""
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] [SERVER] New client connected from: {client_ip}")
+    connected_clients.add(client_ip)
+    print(f"[{timestamp}] [SERVER] Active clients: {len(connected_clients)}")
+
 @app.route('/upload', methods=['POST'])
 def upload():
+    client_ip = request.remote_addr
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Log connection if new client
+    if client_ip not in connected_clients:
+        log_connection(client_ip)
+    
     data = request.get_json(force=True)
     weights = [np.array(w) for w in data['weights']]
     num_samples = data['num_samples']
+    
+    print(f"[{timestamp}] [SERVER] Received update from {client_ip} with {num_samples} samples")
+    
     with lock:
-        # Always use the same validation set for both evaluations
-        val_data = np.load("processedData.npy", allow_pickle=True)
-        np.random.seed(42)  # Ensure reproducibility for this upload
-        np.random.shuffle(val_data)
-        validationData = val_data[:5]
-        X_val = np.array([i[0] for i in validationData])
-        y_val = np.array([i[1] for i in validationData])
-        X_val = X_val[..., np.newaxis]
-
-        # Evaluate current global model (could be random weights if no global_model.weights.h5 exists)
-        current_acc = global_model.evaluate(X_val, y_val, verbose=0)[1]
-
-        # Evaluate client weights
+        # Evaluate current global model
+        current_acc = evaluate_on_val(global_model)
+        # Set new weights and evaluate
         global_model.set_weights(weights)
-        new_acc = global_model.evaluate(X_val, y_val, verbose=0)[1]
-
-        print(f"[SERVER] Current global acc: {current_acc:.4f}, Client acc: {new_acc:.4f}")
-
+        new_acc = evaluate_on_val(global_model)
+        print(f"[{timestamp}] [SERVER] Current global acc: {current_acc:.4f}, Client acc: {new_acc:.4f}")
         if new_acc > current_acc:
             global_model.save_weights("global_model.weights.h5")
-            print("[SERVER] Updated global model with improved client weights.")
+            print(f"[{timestamp}] [SERVER] Updated global model with improved client weights from {client_ip}")
             global new_weights
             new_weights = global_model.get_weights()
             status = "accepted"
         else:
-            # Revert to previous weights if any
+            # Revert to previous weights
             if os.path.exists("global_model.weights.h5"):
                 global_model.load_weights("global_model.weights.h5")
-            print("[SERVER] Disregarded client weights (no improvement).")
+            print(f"[{timestamp}] [SERVER] Disregarded client weights from {client_ip} (no improvement)")
             status = "rejected"
     return jsonify({"status": status})
 
 @app.route('/download', methods=['GET'])
 def download():
+    client_ip = request.remote_addr
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Log connection if new client
+    if client_ip not in connected_clients:
+        log_connection(client_ip)
+    
     with lock:
         if new_weights is None:
-            print("[SERVER] No global weights available yet.")
+            print(f"[{timestamp}] [SERVER] No global weights available yet for {client_ip}")
             return jsonify({"weights": None})
         weights_to_send = [w.tolist() for w in new_weights]
-    print("[SERVER] Sent new_weights to client.")
+    print(f"[{timestamp}] [SERVER] Sent global weights to {client_ip}")
     return jsonify({
         "weights": weights_to_send,
     })
 
 def fedavg_and_update():
     global new_weights, client_updates
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with lock:
         if not client_updates:
-            print("[SERVER] No updates to aggregate.")
+            print(f"[{timestamp}] [SERVER] No updates to aggregate.")
             return
         total = sum(num for _, num in client_updates)
         new_weights_local = None
@@ -119,8 +127,8 @@ def fedavg_and_update():
         new_weights = new_weights_local
         global_model.set_weights(new_weights)
         global_model.save_weights("global_model.weights.h5")  # <-- Save to disk
-        print(f"[SERVER] FedAvg executed. Aggregated {len(client_updates)} clients, total samples: {total}")
-        print("[SERVER] Global model weights saved to global_model.weights.h5")
+        print(f"[{timestamp}] [SERVER] FedAvg executed. Aggregated {len(client_updates)} clients, total samples: {total}")
+        print(f"[{timestamp}] [SERVER] Global model weights saved to global_model.weights.h5")
         client_updates = []
 
 def command_listener():
@@ -128,8 +136,22 @@ def command_listener():
         cmd = input()
         if cmd.strip().lower() == "execute":
             fedavg_and_update()
+        elif cmd.strip().lower() == "clients":
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            print(f"[{timestamp}] [SERVER] Active clients: {len(connected_clients)}")
+            for client in connected_clients:
+                print(f"[{timestamp}] [SERVER] - {client}")
+        elif cmd.strip().lower() == "help":
+            print("\n[SERVER] Available commands:")
+            print("  execute  - Run FedAvg aggregation")
+            print("  clients  - Show connected clients")
+            print("  help     - Show this help message")
+            print("  quit     - Exit server\n")
 
 if __name__ == '__main__':
     threading.Thread(target=command_listener, daemon=True).start()
     print("[SERVER] Federated server is running on port 5000...")
+    print("[SERVER] Server is accessible from other machines on the network")
+    print("[SERVER] Clients should connect to this machine's IP address")
+    print("[SERVER] Type 'help' for available commands")
     app.run(host='0.0.0.0', port=5000)

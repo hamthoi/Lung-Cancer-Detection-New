@@ -32,51 +32,169 @@ class LCD_CNN:
         # Set these before using them
         self.size = 10
         self.NoSlices = 5
+        
+        # Server configuration
+        self.server_ip = "localhost"
+        self.server_port = 5000
 
         # Center the window
-        window_width = 1006
-        window_height = 500
+        window_width = 1200
+        window_height = 700
         screen_width = self.root.winfo_screenwidth()
         screen_height = self.root.winfo_screenheight()
         x = int((screen_width / 2) - (window_width / 2))
         y = int((screen_height / 2) - (window_height / 2))
         self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
         self.root.resizable(False, False)
-        self.root.title("Lung Cancer Detection")
+        self.root.title("Lung Cancer Detection - Federated Learning Client")
 
-        img4=Image.open("gui_images/Lung-Cancer-Detection.jpg")
-        img4=img4.resize((1006,500),Image.Resampling.LANCZOS)
-        #Antialiasing is a technique used in digital imaging to reduce the visual defects that occur when high-resolution images are presented in a lower resolution.
-        self.photoimg4=ImageTk.PhotoImage(img4)
+        # Configure colors
+        self.bg_color = "#2C3E50"  # Dark blue-gray
+        self.accent_color = "#3498DB"  # Blue
+        self.success_color = "#27AE60"  # Green
+        self.warning_color = "#F39C12"  # Orange
+        self.danger_color = "#E74C3C"  # Red
+        self.light_bg = "#ECF0F1"  # Light gray
+        self.text_color = "#2C3E50"  # Dark text
 
-        bg_img=Label(self.root,image=self.photoimg4)
-        bg_img.place(x=0,y=50,width=1006,height=500)
+        # Set background
+        self.root.configure(bg=self.bg_color)
 
-        # title Label
-        title_lbl=Label(text="Lung Cancer Detection",font=("Bradley Hand ITC",30,"bold"),bg="black",fg="white",)
-        title_lbl.place(x=0,y=0,width=1006,height=50)
+        # Main title with gradient effect
+        title_frame = Frame(self.root, bg=self.bg_color, height=80)
+        title_frame.pack(fill='x', pady=(0, 20))
+        
+        title_lbl = Label(title_frame, text="Lung Cancer Detection", 
+                         font=("Arial", 28, "bold"), 
+                         bg=self.bg_color, fg="white")
+        title_lbl.pack(pady=20)
+        
+        subtitle_lbl = Label(title_frame, text="Federated Learning Client", 
+                            font=("Arial", 12), 
+                            bg=self.bg_color, fg="#BDC3C7")
+        subtitle_lbl.pack()
 
-        #button 1
-        self.b1=Button(text="Import Data",cursor="hand2",command=self.import_data,font=("Times New Roman",15,"bold"),bg="white",fg="black")
-        self.b1.place(x=80,y=130,width=180,height=30)
+        # Main content frame
+        main_frame = Frame(self.root, bg=self.light_bg)
+        main_frame.pack(fill='both', expand=True, padx=20, pady=(0, 20))
 
-        #button 2
-        self.b2=Button(text="Pre-Process Data",cursor="hand2",command=self.preprocess_data,font=("Times New Roman",15,"bold"),bg="white",fg="black")
-        self.b2.place(x=80,y=180,width=180,height=30)
-        self.b2["state"] = "disabled"
-        self.b2.config(cursor="arrow")
+        # Left panel - Server Configuration
+        left_panel = Frame(main_frame, bg="white", relief="solid", bd=1)
+        left_panel.pack(side='left', fill='y', padx=(0, 10))
+        
+        # Server configuration section
+        server_label = Label(left_panel, text="🔗 Server Configuration", 
+                           font=("Arial", 14, "bold"), 
+                           bg="white", fg=self.text_color)
+        server_label.pack(pady=(20, 15))
+        
+        # IP Configuration
+        ip_frame = Frame(left_panel, bg="white")
+        ip_frame.pack(fill='x', padx=20, pady=5)
+        
+        ip_label = Label(ip_frame, text="Server IP:", 
+                        font=("Arial", 10, "bold"), 
+                        bg="white", fg=self.text_color)
+        ip_label.pack(anchor='w')
+        
+        self.ip_entry = Entry(ip_frame, font=("Arial", 11), 
+                             width=20, relief="solid", bd=1)
+        self.ip_entry.insert(0, "localhost")
+        self.ip_entry.pack(fill='x', pady=(5, 10))
+        
+        # Port Configuration
+        port_frame = Frame(left_panel, bg="white")
+        port_frame.pack(fill='x', padx=20, pady=5)
+        
+        port_label = Label(port_frame, text="Port:", 
+                          font=("Arial", 10, "bold"), 
+                          bg="white", fg=self.text_color)
+        port_label.pack(anchor='w')
+        
+        self.port_entry = Entry(port_frame, font=("Arial", 11), 
+                               width=10, relief="solid", bd=1)
+        self.port_entry.insert(0, "5000")
+        self.port_entry.pack(fill='x', pady=(5, 15))
+        
+        # Connect button
+        connect_btn = Button(left_panel, text="🔌 Connect to Server", 
+                           command=self.update_server_config,
+                           font=("Arial", 11, "bold"), 
+                           bg=self.accent_color, fg="white",
+                           relief="flat", bd=0,
+                           width=20, height=2,
+                           cursor="hand2")
+        connect_btn.pack(pady=(0, 20))
+        
+        # Status indicator
+        self.status_label = Label(left_panel, text="● Disconnected", 
+                                 font=("Arial", 10), 
+                                 bg="white", fg=self.danger_color)
+        self.status_label.pack(pady=(0, 20))
 
-        #button 3
-        self.b3=Button(text="Train Data",cursor="hand2",command=self.train_data,font=("Times New Roman",15,"bold"),bg="white",fg="black")
-        self.b3.place(x=80,y=230,width=180,height=30)
-        self.b3["state"] = "disabled"
-        self.b3.config(cursor="arrow")
+        # Right panel - Main Operations
+        right_panel = Frame(main_frame, bg="white", relief="solid", bd=1)
+        right_panel.pack(side='right', fill='both', expand=True)
+        
+        operations_label = Label(right_panel, text="⚙️ Operations", 
+                               font=("Arial", 14, "bold"), 
+                               bg="white", fg=self.text_color)
+        operations_label.pack(pady=(20, 15))
 
-        #button 4
-        self.b4 = Button(text="Test Image", cursor="hand2", command=self.test_image, font=("Times New Roman",15,"bold"), bg="white", fg="black")
-        self.b4.place(x=80, y=280, width=180, height=30)
-        self.b4["state"] = "normal"
-        self.b4.config(cursor="hand2")
+        # Operations frame
+        operations_frame = Frame(right_panel, bg="white")
+        operations_frame.pack(fill='both', expand=True, padx=20, pady=(0, 20))
+
+        # Button 1 - Import Data
+        self.b1 = Button(operations_frame, text="📁 Import Data", 
+                        cursor="hand2", command=self.import_data,
+                        font=("Arial", 12, "bold"), 
+                        bg=self.accent_color, fg="white",
+                        relief="flat", bd=0,
+                        width=20, height=2,
+                        activebackground="#2980B9",
+                        activeforeground="white")
+        self.b1.pack(pady=10)
+
+        # Button 2 - Pre-Process Data
+        self.b2 = Button(operations_frame, text="🔧 Pre-Process Data", 
+                        cursor="hand2", command=self.preprocess_data,
+                        font=("Arial", 12, "bold"), 
+                        bg="#95A5A6", fg="white",
+                        relief="flat", bd=0,
+                        width=20, height=2,
+                        state="disabled")
+        self.b2.pack(pady=10)
+
+        # Button 3 - Train Data
+        self.b3 = Button(operations_frame, text="🎯 Train Model", 
+                        cursor="hand2", command=self.train_data,
+                        font=("Arial", 12, "bold"), 
+                        bg="#95A5A6", fg="white",
+                        relief="flat", bd=0,
+                        width=20, height=2,
+                        state="disabled")
+        self.b3.pack(pady=10)
+
+        # Button 4 - Test Image
+        self.b4 = Button(operations_frame, text="🔍 Test Image", 
+                        cursor="hand2", command=self.test_image,
+                        font=("Arial", 12, "bold"), 
+                        bg=self.success_color, fg="white",
+                        relief="flat", bd=0,
+                        width=20, height=2,
+                        activebackground="#229954",
+                        activeforeground="white")
+        self.b4.pack(pady=10)
+
+        # Progress frame
+        progress_frame = Frame(right_panel, bg="white")
+        progress_frame.pack(fill='x', padx=20, pady=(0, 20))
+        
+        self.progress_label = Label(progress_frame, text="Ready to start federated learning", 
+                                  font=("Arial", 10), 
+                                  bg="white", fg="#7F8C8D")
+        self.progress_label.pack()
 
         self.initial_weights = None  # Store initial weights for reuse
         input_shape = (self.NoSlices, self.size, self.size, 1)
@@ -106,12 +224,14 @@ class LCD_CNN:
         ## Setting z-dimension (number of slices to 5)
         self.NoSlices = 5
 
-        messagebox.showinfo("Import Data" , "Data Imported Successfully!") 
+        # Update progress
+        self.progress_label.config(text="Data imported successfully!")
+        
+        # Update button states
+        self.b1.config(state="disabled", bg="#95A5A6", cursor="arrow")
+        self.b2.config(state="normal", bg=self.accent_color, cursor="hand2")
 
-        self.b1["state"] = "disabled"
-        self.b1.config(cursor="arrow") 
-        self.b2["state"] = "normal"
-        self.b2.config(cursor="hand2")   
+        messagebox.showinfo("Import Data" , "Data Imported Successfully!")
 
 # Data preprocessing is the process of transforming raw data into an understandable format.
     def preprocess_data(self):
@@ -174,12 +294,14 @@ class LCD_CNN:
         ##Results= Image Data and lable.
         np.save('processedData.npy', np.array(imageData, dtype=object))
 
-        messagebox.showinfo("Pre-Process Data" , "Data Pre-Processing Done Successfully!") 
+        # Update progress
+        self.progress_label.config(text="Data pre-processing completed!")
+        
+        # Update button states
+        self.b2.config(state="disabled", bg="#95A5A6", cursor="arrow")
+        self.b3.config(state="normal", bg=self.accent_color, cursor="hand2")
 
-        self.b2["state"] = "disabled"
-        self.b2.config(cursor="arrow") 
-        self.b3["state"] = "normal"
-        self.b3.config(cursor="hand2")
+        messagebox.showinfo("Pre-Process Data" , "Data Pre-Processing Done Successfully!")
 
 # Data training is the process of training the model based on the dataset and then predict on new data.
     def send_update_to_server(self, weights, num_samples):
@@ -190,7 +312,7 @@ class LCD_CNN:
             "num_samples": num_samples
         }
         try:
-            response = requests.post("http://localhost:5000/upload", json=data)
+            response = requests.post(self.get_server_url("upload"), json=data)
             resp_json = response.json()
             print(resp_json)
             # Show popup on success
@@ -210,7 +332,7 @@ class LCD_CNN:
         consecutive_errors = 0
         while True:
             try:
-                response = requests.get("http://localhost:5000/download")
+                response = requests.get(self.get_server_url("download"))
                 if response.status_code == 200:
                     data = response.json()
                     if data["weights"] is not None:
@@ -236,6 +358,45 @@ class LCD_CNN:
                 consecutive_errors = 0  # Reset error count if user wants to keep waiting
 
             time.sleep(poll_interval)
+
+    def update_server_config(self):
+        """Update server configuration from GUI inputs"""
+        try:
+            self.server_ip = self.ip_entry.get().strip()
+            self.server_port = int(self.port_entry.get().strip())
+            
+            # Update status to connecting
+            self.status_label.config(text="● Connecting...", fg=self.warning_color)
+            self.progress_label.config(text="Testing connection to server...")
+            self.root.update()
+            
+            # Test connection
+            test_url = f"http://{self.server_ip}:{self.server_port}/download"
+            response = requests.get(test_url, timeout=5)
+            if response.status_code == 200:
+                self.status_label.config(text="● Connected", fg=self.success_color)
+                self.progress_label.config(text=f"Successfully connected to server at {self.server_ip}:{self.server_port}")
+                messagebox.showinfo("Connection", f"Successfully connected to server at {self.server_ip}:{self.server_port}")
+            else:
+                self.status_label.config(text="● Error", fg=self.danger_color)
+                self.progress_label.config(text=f"Server responded with status {response.status_code}")
+                messagebox.showwarning("Connection", f"Server responded with status {response.status_code}")
+        except ValueError:
+            self.status_label.config(text="● Error", fg=self.danger_color)
+            self.progress_label.config(text="Invalid port number")
+            messagebox.showerror("Error", "Invalid port number. Please enter a valid integer.")
+        except requests.exceptions.ConnectionError:
+            self.status_label.config(text="● Disconnected", fg=self.danger_color)
+            self.progress_label.config(text="Cannot connect to server")
+            messagebox.showerror("Connection Error", f"Cannot connect to server at {self.server_ip}:{self.server_port}\n\nPlease check:\n- Server is running\n- IP address is correct\n- Port is correct\n- Network connectivity")
+        except Exception as e:
+            self.status_label.config(text="● Error", fg=self.danger_color)
+            self.progress_label.config(text=f"Connection error: {str(e)}")
+            messagebox.showerror("Error", f"Connection error: {str(e)}")
+
+    def get_server_url(self, endpoint):
+        """Get the full server URL for a given endpoint"""
+        return f"http://{self.server_ip}:{self.server_port}/{endpoint}"
 
     def train_data(self):    
         imageData = np.load('processedData.npy', allow_pickle=True)
@@ -297,9 +458,6 @@ class LCD_CNN:
             print("Predicted: ", predicted[i])
             print("----------------------------------------------------")
 
-        final_accuracy=Label(text="Final Accuracy: " + str(val_acc),font=("Times New Roman",13,"bold"),bg="black", fg="white",)
-        final_accuracy.place(x=750,y=230,width=200,height=18)  
-
         # Confusion Matrix
         y_actual = pd.Series(actual_classes, name='Actual')
         y_predicted = pd.Series(predicted_classes, name='Predicted')
@@ -307,31 +465,8 @@ class LCD_CNN:
         print('Confusion Matrix:\n')
         print(df_confusion)
 
-        prediction_label=Label(text=">>>>    P R E D I C T I O N    <<<<",font=("Times New Roman",14,"bold"),bg="#778899", fg="black",)
-        prediction_label.place(x=0,y=458,width=1006,height=20)   
-
-        result1 = []
-        for i in range(len(patients)):
-            result1.append(patients[i])
-            result1.append(actual[i])
-            result1.append(predicted[i])
-
-        total_rows = int(len(patients))
-        total_columns = 3
-
-        heading = ["Patient: ", "Actual: ", "Predicted: "]
-
-        self.root.geometry("1006x"+str(500+(len(patients)*20)-20)+"+0+0") 
-        self.root.resizable(False, False)
-
-        for i in range(total_rows):
-            for j in range(total_columns):
-                self.e = Entry(self.root, width=42, fg='black', font=('Times New Roman',12,'bold')) 
-                self.e.grid(row=i, column=j) 
-                self.e.place(x=(j*335),y=(478+i*20))
-                self.e.insert(END, heading[j] + result1[j + i*3]) 
-                self.e["state"] = "disabled"
-                self.e.config(cursor="arrow")                     
+        # Create a separate results window instead of resizing main window
+        self.show_training_results(patients, actual, predicted, val_acc)
 
         self.b3["state"] = "disabled"
         self.b3.config(cursor="arrow") 
@@ -339,6 +474,9 @@ class LCD_CNN:
         # Enable the test button after training
         self.b4["state"] = "normal"
         self.b4.config(cursor="hand2")
+
+        # Update progress
+        self.progress_label.config(text="Model training completed! Ready for testing.")
 
         messagebox.showinfo("Train Data" , "Model Trained Successfully!")
 
@@ -370,6 +508,91 @@ class LCD_CNN:
             plt.xlabel(df_confusion.columns.name)
             plt.show()
         plot_confusion_matrix(df_confusion)
+
+    def show_training_results(self, patients, actual, predicted, accuracy):
+        """Show training results in a separate window"""
+        # Create results window
+        results_window = Toplevel(self.root)
+        results_window.title("Training Results")
+        results_window.geometry("800x600")
+        results_window.configure(bg=self.light_bg)
+        
+        # Center the window
+        results_window.transient(self.root)
+        results_window.grab_set()
+        
+        # Title
+        title_label = Label(results_window, text="Training Results", 
+                           font=("Arial", 18, "bold"), 
+                           bg=self.light_bg, fg=self.text_color)
+        title_label.pack(pady=20)
+        
+        # Accuracy display
+        accuracy_frame = Frame(results_window, bg="white", relief="solid", bd=1)
+        accuracy_frame.pack(fill='x', padx=20, pady=10)
+        
+        accuracy_label = Label(accuracy_frame, text=f"Final Accuracy: {accuracy:.4f}", 
+                              font=("Arial", 14, "bold"), 
+                              bg="white", fg=self.success_color)
+        accuracy_label.pack(pady=10)
+        
+        # Results table
+        table_frame = Frame(results_window, bg="white", relief="solid", bd=1)
+        table_frame.pack(fill='both', expand=True, padx=20, pady=10)
+        
+        # Table headers
+        headers = ["Patient", "Actual", "Predicted", "Status"]
+        for i, header in enumerate(headers):
+            header_label = Label(table_frame, text=header, 
+                               font=("Arial", 12, "bold"), 
+                               bg=self.accent_color, fg="white",
+                               relief="solid", bd=1)
+            header_label.grid(row=0, column=i, sticky='ew', padx=1, pady=1)
+        
+        # Table data
+        for i, (patient, act, pred) in enumerate(zip(patients, actual, predicted)):
+            # Patient name
+            patient_label = Label(table_frame, text=patient, 
+                                font=("Arial", 10), 
+                                bg="white", fg=self.text_color,
+                                relief="solid", bd=1)
+            patient_label.grid(row=i+1, column=0, sticky='ew', padx=1, pady=1)
+            
+            # Actual
+            actual_label = Label(table_frame, text=act, 
+                               font=("Arial", 10), 
+                               bg="white", fg=self.text_color,
+                               relief="solid", bd=1)
+            actual_label.grid(row=i+1, column=1, sticky='ew', padx=1, pady=1)
+            
+            # Predicted
+            predicted_label = Label(table_frame, text=pred, 
+                                  font=("Arial", 10), 
+                                  bg="white", fg=self.text_color,
+                                  relief="solid", bd=1)
+            predicted_label.grid(row=i+1, column=2, sticky='ew', padx=1, pady=1)
+            
+            # Status (correct/incorrect)
+            status = "✓ Correct" if act == pred else "✗ Incorrect"
+            status_color = self.success_color if act == pred else self.danger_color
+            status_label = Label(table_frame, text=status, 
+                               font=("Arial", 10, "bold"), 
+                               bg="white", fg=status_color,
+                               relief="solid", bd=1)
+            status_label.grid(row=i+1, column=3, sticky='ew', padx=1, pady=1)
+        
+        # Configure grid weights
+        for i in range(4):
+            table_frame.grid_columnconfigure(i, weight=1)
+        
+        # Close button
+        close_button = Button(results_window, text="Close", 
+                            command=results_window.destroy,
+                            font=("Arial", 12, "bold"), 
+                            bg=self.accent_color, fg="white",
+                            relief="flat", bd=0,
+                            width=15, height=2)
+        close_button.pack(pady=20)
 
     def test_image(self):
         def run_prediction():
