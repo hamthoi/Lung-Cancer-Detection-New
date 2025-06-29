@@ -160,9 +160,29 @@ class LCD_CNN:
 
             return np.array(new_slices), label
 
+
+
+        # --- Data balancing: oversample cancer folders to match no_cancer count ---
+        cancer_folders = [f for f in self.lungPatients if f.lower().startswith('cancer')]
+        no_cancer_folders = [f for f in self.lungPatients if f.lower().startswith('no_cancer')]
+
+        n_cancer = len(cancer_folders)
+        n_no_cancer = len(no_cancer_folders)
+
+        # If cancer folders are fewer, oversample (with replacement)
+        if n_cancer < n_no_cancer:
+            # Randomly sample cancer folders to match no_cancer count
+            extra_cancer = np.random.choice(cancer_folders, n_no_cancer - n_cancer, replace=True)
+            balanced_cancer_folders = cancer_folders + list(extra_cancer)
+        else:
+            balanced_cancer_folders = cancer_folders
+
+        # Combine and shuffle all folders
+        all_folders = balanced_cancer_folders + no_cancer_folders
+        np.random.shuffle(all_folders)
+
         imageData = []
-        #Check if Data Labels is available in CSV or not
-        for num, patient in enumerate(self.lungPatients):
+        for num, patient in enumerate(all_folders):
             if num % 50 == 0:
                 print('Saved -', num)
             try:
@@ -257,10 +277,31 @@ class LCD_CNN:
                 layers.Dropout(0.5),
                 layers.Dense(2, activation='softmax')
             ])
+
         imageData = np.load('processedData.npy', allow_pickle=True)
-        np.random.shuffle(imageData)
-        trainingData = imageData[0:45]
-        validationData = imageData[45:50]
+        # Separate cancer and no_cancer patients
+        cancer_data = [item for item in imageData if np.array_equal(item[1], [0, 1])]
+        no_cancer_data = [item for item in imageData if np.array_equal(item[1], [1, 0])]
+
+        np.random.shuffle(cancer_data)
+        np.random.shuffle(no_cancer_data)
+
+        # Number of validation samples (test set size)
+        val_size = 5
+        val_cancer = val_size // 2
+        val_no_cancer = val_size - val_cancer
+
+        # If not enough cancer/no_cancer samples, adjust
+        val_cancer = min(val_cancer, len(cancer_data))
+        val_no_cancer = min(val_no_cancer, len(no_cancer_data))
+        val_size = val_cancer + val_no_cancer
+
+        validationData = cancer_data[:val_cancer] + no_cancer_data[:val_no_cancer]
+        # Remove validation samples from training
+        train_cancer = cancer_data[val_cancer:]
+        train_no_cancer = no_cancer_data[val_no_cancer:]
+        trainingData = train_cancer + train_no_cancer
+        np.random.shuffle(trainingData)
 
         X_train = np.array([i[0] for i in trainingData])
         y_train = np.array([i[1] for i in trainingData])
