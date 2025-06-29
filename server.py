@@ -7,9 +7,8 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-client_updates = []  # Each item: (weights, num_samples)
 lock = threading.Lock()
-new_weights = None  # Store only the latest aggregated weights
+new_weights = None  # Store only the latest global weights
 connected_clients = set()  # Track connected clients
 
 # Define the model architecture (must match client)
@@ -57,8 +56,17 @@ def log_connection(client_ip):
     connected_clients.add(client_ip)
     print(f"[{timestamp}] [SERVER] Active clients: {len(connected_clients)}")
 
+def federated_average(global_weights, client_weights, client_samples, global_samples=1):
+    """Weighted average of global and client weights."""
+    total = client_samples + global_samples
+    return [
+        (gw * global_samples + cw * client_samples) / total
+        for gw, cw in zip(global_weights, client_weights)
+    ]
+
 @app.route('/upload', methods=['POST'])
 def upload():
+    global new_weights  # <-- Move this to the top of the function
     client_ip = request.remote_addr
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
@@ -73,28 +81,39 @@ def upload():
     print(f"[{timestamp}] [SERVER] Received update from {client_ip} with {num_samples} samples")
     
     with lock:
-        # Define first_update: True if no global weights file exists
         first_update = not os.path.exists("global_model.weights.h5")
-        # Evaluate current global model on 10 random patients
-        current_acc = evaluate_on_val(global_model, val_size=10)
-        print(f"[{timestamp}] [SERVER] Accuracy of current global model: {current_acc:.4f}")
-        # Set new weights and evaluate
-        global_model.set_weights(weights)
-        new_acc = evaluate_on_val(global_model, val_size=10)
-        print(f"[{timestamp}] [SERVER] Accuracy of client model: {new_acc:.4f}")
-        print(f"[{timestamp}] [SERVER] Current global acc: {current_acc:.4f}, Client acc: {new_acc:.4f}")
-        if first_update or new_acc > current_acc:
+        if first_update:
+            # First update: just take the client's model
+            global_model.set_weights(weights)
             global_model.save_weights("global_model.weights.h5")
-            print(f"[{timestamp}] [SERVER] Updated global model with improved client weights from {client_ip}")
-            global new_weights
+            print(f"[{timestamp}] [SERVER] First update: set global model to client weights from {client_ip}")
             new_weights = global_model.get_weights()
             status = "accepted"
         else:
-            # Revert to previous weights
-            if os.path.exists("global_model.weights.h5"):
+            # Evaluate current global model on 10 random patients
+            current_acc = evaluate_on_val(global_model, val_size=10)
+            print(f"[{timestamp}] [SERVER] Accuracy of current global model: {current_acc:.4f}")
+            # Set new weights and evaluate
+            global_model.set_weights(weights)
+            new_acc = evaluate_on_val(global_model, val_size=10)
+            print(f"[{timestamp}] [SERVER] Accuracy of client model: {new_acc:.4f}")
+            print(f"[{timestamp}] [SERVER] Current global acc: {current_acc:.4f}, Client acc: {new_acc:.4f}")
+            if new_acc > current_acc:
+                # Load previous global weights for averaging
                 global_model.load_weights("global_model.weights.h5")
-            print(f"[{timestamp}] [SERVER] Disregarded client weights from {client_ip} (no improvement)")
-            status = "rejected"
+                global_weights = global_model.get_weights()
+                # Federated average
+                averaged_weights = federated_average(global_weights, weights, num_samples, global_samples=1)
+                global_model.set_weights(averaged_weights)
+                global_model.save_weights("global_model.weights.h5")
+                print(f"[{timestamp}] [SERVER] Updated global model by averaging with client weights from {client_ip}")
+                new_weights = global_model.get_weights()
+                status = "accepted"
+            else:
+                # Revert to previous weights
+                global_model.load_weights("global_model.weights.h5")
+                print(f"[{timestamp}] [SERVER] Disregarded client weights from {client_ip} (no improvement)")
+                status = "rejected"
     return jsonify({"status": status})
 
 @app.route('/download', methods=['GET'])
@@ -116,49 +135,8 @@ def download():
         "weights": weights_to_send,
     })
 
-def fedavg_and_update():
-    global new_weights, client_updates
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with lock:
-        if not client_updates:
-            print(f"[{timestamp}] [SERVER] No updates to aggregate.")
-            return
-        total = sum(num for _, num in client_updates)
-        new_weights_local = None
-        for weights, num in client_updates:
-            scaled = [w * (num / total) for w in weights]
-            if new_weights_local is None:
-                new_weights_local = scaled
-            else:
-                new_weights_local = [nw + sw for nw, sw in zip(new_weights_local, scaled)]
-        new_weights = new_weights_local
-        global_model.set_weights(new_weights)
-        global_model.save_weights("global_model.weights.h5")  # <-- Save to disk
-        print(f"[{timestamp}] [SERVER] FedAvg executed. Aggregated {len(client_updates)} clients, total samples: {total}")
-        print(f"[{timestamp}] [SERVER] Global model weights saved to global_model.weights.h5")
-        client_updates = []
-
-def command_listener():
-    while True:
-        cmd = input()
-        if cmd.strip().lower() == "execute":
-            fedavg_and_update()
-        elif cmd.strip().lower() == "clients":
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            print(f"[{timestamp}] [SERVER] Active clients: {len(connected_clients)}")
-            for client in connected_clients:
-                print(f"[{timestamp}] [SERVER] - {client}")
-        elif cmd.strip().lower() == "help":
-            print("\n[SERVER] Available commands:")
-            print("  execute  - Run FedAvg aggregation")
-            print("  clients  - Show connected clients")
-            print("  help     - Show this help message")
-            print("  quit     - Exit server\n")
-
 if __name__ == '__main__':
-    threading.Thread(target=command_listener, daemon=True).start()
     print("[SERVER] Federated server is running on port 5000...")
     print("[SERVER] Server is accessible from other machines on the network")
     print("[SERVER] Clients should connect to this machine's IP address")
-    print("[SERVER] Type 'help' for available commands")
     app.run(host='0.0.0.0', port=5000)

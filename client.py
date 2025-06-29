@@ -1,7 +1,3 @@
-from codecs import BOM32_BE
-from ctypes import alignment
-from unittest import result
-from xml.dom.expatbuilder import parseString
 import numpy as np
 import pandas as pd
 import pydicom as dicom
@@ -10,20 +6,13 @@ import matplotlib.pyplot as plt
 import cv2
 import math
 import requests
-import json
 import threading
 import time
 
-from sklearn.metrics import confusion_matrix
-
 from tkinter import *
-from tkinter import messagebox,ttk
-import tkinter as tk
-from PIL import Image,ImageTk
-from tkinter import filedialog
+from tkinter import messagebox, filedialog
 
-from tensorflow.keras import layers, models # type: ignore
-from tensorflow.keras.callbacks import ModelCheckpoint # type: ignore
+from tensorflow.keras import layers, models  # type: ignore
 
 class LCD_CNN:
     def __init__(self,root):
