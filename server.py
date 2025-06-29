@@ -36,14 +36,17 @@ if os.path.exists("global_model.weights.h5"):
     print("[SERVER] Loaded global model weights from disk.")
 new_weights = global_model.get_weights()
 
-# Load validation data (same as client)
-val_data = np.load("processedData.npy", allow_pickle=True)
-validationData = val_data[45:50]
-X_val = np.array([i[0] for i in validationData])
-y_val = np.array([i[1] for i in validationData])
-X_val = X_val[..., np.newaxis]
+def get_random_validation_set(val_size=10):
+    val_data = np.load("processedData.npy", allow_pickle=True)
+    np.random.shuffle(val_data)
+    validationData = val_data[:val_size]
+    X_val = np.array([i[0] for i in validationData])
+    y_val = np.array([i[1] for i in validationData])
+    X_val = X_val[..., np.newaxis]
+    return X_val, y_val
 
-def evaluate_on_val(model):
+def evaluate_on_val(model, val_size=10):
+    X_val, y_val = get_random_validation_set(val_size)
     loss, acc = model.evaluate(X_val, y_val, verbose=0)
     return acc
 
@@ -70,13 +73,17 @@ def upload():
     print(f"[{timestamp}] [SERVER] Received update from {client_ip} with {num_samples} samples")
     
     with lock:
-        # Evaluate current global model
-        current_acc = evaluate_on_val(global_model)
+        # Define first_update: True if no global weights file exists
+        first_update = not os.path.exists("global_model.weights.h5")
+        # Evaluate current global model on 10 random patients
+        current_acc = evaluate_on_val(global_model, val_size=10)
+        print(f"[{timestamp}] [SERVER] Accuracy of current global model: {current_acc:.4f}")
         # Set new weights and evaluate
         global_model.set_weights(weights)
-        new_acc = evaluate_on_val(global_model)
+        new_acc = evaluate_on_val(global_model, val_size=10)
+        print(f"[{timestamp}] [SERVER] Accuracy of client model: {new_acc:.4f}")
         print(f"[{timestamp}] [SERVER] Current global acc: {current_acc:.4f}, Client acc: {new_acc:.4f}")
-        if new_acc > current_acc:
+        if first_update or new_acc > current_acc:
             global_model.save_weights("global_model.weights.h5")
             print(f"[{timestamp}] [SERVER] Updated global model with improved client weights from {client_ip}")
             global new_weights

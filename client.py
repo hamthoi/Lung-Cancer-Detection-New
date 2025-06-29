@@ -336,7 +336,7 @@ class LCD_CNN:
             resp_json = response.json()
             print(resp_json)
             # Show popup on success
-            if resp_json.get("status") in ("success", "queued"):
+            if resp_json.get("status") in ("success", "queued", "accepted"):
                 messagebox.showinfo("Federated Update", "Model update sent to server!")
             else:
                 messagebox.showwarning("Federated Update", "Server did not acknowledge the update.")
@@ -409,7 +409,7 @@ class LCD_CNN:
         np.random.shuffle(no_cancer_data)
 
         # Number of validation samples (test set size)
-        val_size = 5
+        val_size = 10
         val_cancer = val_size // 2
         val_no_cancer = val_size - val_cancer
 
