@@ -25,7 +25,7 @@ class LCD_CNN:
         # Server configuration
         self.server_ip = "localhost"
         self.server_port = 5000
-        self.backup_server_ip = "localhost"  # or backup server IP
+        self.backup_server_ip = "172.16.130.201"  # or backup server IP
         self.backup_server_port = 5001       # or backup server port
 
         # Center the window
@@ -178,6 +178,28 @@ class LCD_CNN:
                         activeforeground="white")
         self.b4.pack(pady=10)
 
+        # Button 5 - Check Server Status
+        self.b5 = Button(operations_frame, text="📊 Server Status", 
+                        cursor="hand2", command=self.show_server_status,
+                        font=("Arial", 12, "bold"), 
+                        bg="#9B59B6", fg="white",
+                        relief="flat", bd=0,
+                        width=20, height=2,
+                        activebackground="#8E44AD",
+                        activeforeground="white")
+        self.b5.pack(pady=10)
+
+        # Button 6 - FedAvg History
+        self.b6 = Button(operations_frame, text="📈 FedAvg History", 
+                        cursor="hand2", command=self.show_fedavg_history,
+                        font=("Arial", 12, "bold"), 
+                        bg="#E67E22", fg="white",
+                        relief="flat", bd=0,
+                        width=20, height=2,
+                        activebackground="#D35400",
+                        activeforeground="white")
+        self.b6.pack(pady=10)
+
         # Progress frame
         progress_frame = Frame(right_panel, bg="white")
         progress_frame.pack(fill='x', padx=20, pady=(0, 20))
@@ -328,13 +350,77 @@ class LCD_CNN:
             response = requests.post(self.get_server_url("upload"), json=data)
             resp_json = response.json()
             print(resp_json)
-            # Show popup on success
-            if resp_json.get("status") in ("success", "queued", "accepted"):
-                messagebox.showinfo("Federated Update", "Model update sent to server!")
+            
+            # Show appropriate popup based on server response
+            status = resp_json.get("status")
+            queue_size = resp_json.get("queue_size", 0)
+            max_clients = resp_json.get("max_clients", 10)
+            
+            if status == "accepted":
+                messagebox.showinfo("Federated Update", "Model update accepted as first global model!")
+            elif status == "queued":
+                messagebox.showinfo("Federated Update", 
+                                  f"Model update queued for FedAvg!\n\n"
+                                  f"Queue: {queue_size}/{max_clients} clients\n"
+                                  f"FedAvg will execute when {max_clients} clients are ready.")
+            elif status == "accepted_and_fedavg_executed":
+                messagebox.showinfo("Federated Update", 
+                                  f"Model update accepted and FedAvg executed!\n\n"
+                                  f"Global model has been updated with {max_clients} clients.")
             else:
-                messagebox.showwarning("Federated Update", "Server did not acknowledge the update.")
+                messagebox.showwarning("Federated Update", f"Server response: {status}")
+                
         except Exception as e:
             messagebox.showerror("Federated Update", f"Failed to send update to server:\n{e}")
+
+    def check_server_status(self):
+        """Check server status and queue information."""
+        try:
+            response = requests.get(self.get_server_url("status"), timeout=5)
+            if response.status_code == 200:
+                status_data = response.json()
+                queue_size = status_data.get("queue_size", 0)
+                max_clients = status_data.get("max_clients", 10)
+                connected_clients = status_data.get("connected_clients", 0)
+                has_global_model = status_data.get("has_global_model", False)
+                timer_active = status_data.get("timer_active", False)
+                countdown_seconds = status_data.get("countdown_seconds", 30)
+                min_clients_for_timer = status_data.get("min_clients_for_timer", 2)
+                
+                status_msg = f"Server Status:\n\n"
+                status_msg += f"Connected clients: {connected_clients}\n"
+                status_msg += f"Queue size: {queue_size}/{max_clients}\n"
+                status_msg += f"Global model exists: {'Yes' if has_global_model else 'No'}\n"
+                
+                if queue_size > 0:
+                    queued_clients = status_data.get("queued_clients", [])
+                    status_msg += f"Queued clients: {', '.join(queued_clients)}\n"
+                
+                if timer_active:
+                    status_msg += f"\n⏰ Countdown timer active: {countdown_seconds} seconds\n"
+                    status_msg += f"FedAvg will execute when timer expires!"
+                elif queue_size >= max_clients:
+                    status_msg += f"\n⚠️ FedAvg will execute automatically!"
+                elif queue_size >= min_clients_for_timer:
+                    status_msg += f"\n⏳ {min_clients_for_timer}+ clients queued - timer will start on next update"
+                elif queue_size > 0:
+                    status_msg += f"\n⏳ Waiting for {min_clients_for_timer - queue_size} more clients to start timer..."
+                else:
+                    status_msg += f"\n✅ Ready for new updates"
+                
+                return status_msg
+            else:
+                return f"Server responded with status {response.status_code}"
+        except Exception as e:
+            return f"Error checking server status: {str(e)}"
+
+    def show_server_status(self):
+        """Show server status in a popup window."""
+        try:
+            status_msg = self.check_server_status()
+            messagebox.showinfo("Server Status", status_msg)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to check server status: {str(e)}")
 
     def wait_for_global_weights(self, poll_interval=10, max_errors=3):
         consecutive_errors = 0
@@ -351,6 +437,9 @@ class LCD_CNN:
                         return [np.array(w) for w in data["weights"]]
                     else:
                         print("Waiting for server to broadcast global weights...")
+                        # Check server status to see if FedAvg is in progress
+                        status_msg = self.check_server_status()
+                        print(f"Server status: {status_msg}")
                     consecutive_errors = 0  # Reset error count on success
                 else:
                     print("Server responded with error, retrying...")
@@ -394,7 +483,7 @@ class LCD_CNN:
                     # User chose Yes: Keep waiting
                     consecutive_errors = 0  # Reset error count if user wants to keep waiting
 
-        time.sleep(poll_interval)
+            time.sleep(poll_interval)
 
     def train_data(self):
         # --- Download and set global weights before training ---
@@ -718,6 +807,128 @@ class LCD_CNN:
         if use_backup:
             return f"http://{self.backup_server_ip}:{self.backup_server_port}/{endpoint}"
         return f"http://{self.server_ip}:{self.server_port}/{endpoint}"
+
+    def download_global_model(self):
+        """Download the latest global model from the server."""
+        def download_thread():
+            try:
+                self.progress_label.config(text="Downloading global model from server...")
+                self.root.update()
+                
+                # Try to get global weights from server
+                response = requests.get(self.get_server_url("download"), timeout=30)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data["weights"] is not None:
+                        global_weights = [np.array(w) for w in data["weights"]]
+                        self.model.set_weights(global_weights)
+                        
+                        # Display FedAvg information if available
+                        fedavg_info = data.get("fedavg_info")
+                        if fedavg_info:
+                            message = f"✅ Global model downloaded successfully!\n\n"
+                            message += f"📊 FedAvg Round {fedavg_info['round']}\n"
+                            message += f"📅 {fedavg_info['timestamp']}\n"
+                            message += f"👥 {fedavg_info['num_clients']} clients participated\n"
+                            message += f"📈 {fedavg_info['total_samples']} total samples\n"
+                            message += f"🎯 Global model accuracy: {fedavg_info['accuracy']:.4f}\n\n"
+                            message += f"🏥 Participating clients:\n"
+                            for i, client_ip in enumerate(fedavg_info['participants'], 1):
+                                message += f"   {i}. {client_ip}\n"
+                            
+                            self.root.after(0, lambda: messagebox.showinfo("Global Model Downloaded", message))
+                        else:
+                            self.root.after(0, lambda: messagebox.showinfo("Global Model Downloaded", 
+                                "✅ Global model downloaded successfully!\n\n(No FedAvg information available)"))
+                        
+                        self.progress_label.config(text="Global model downloaded and loaded successfully!")
+                    else:
+                        self.root.after(0, lambda: messagebox.showwarning("Download Failed", 
+                            "No global model available on server yet.\n\nTrain locally first or wait for other clients to contribute."))
+                        self.progress_label.config(text="No global model available on server")
+                else:
+                    self.root.after(0, lambda: messagebox.showerror("Download Failed", 
+                        f"Server responded with error {response.status_code}"))
+                    self.progress_label.config(text="Failed to download global model")
+                    
+            except Exception as e:
+                self.root.after(0, lambda: messagebox.showerror("Download Error", 
+                    f"Failed to download global model:\n{e}"))
+                self.progress_label.config(text="Error downloading global model")
+        
+        # Run download in a separate thread
+        threading.Thread(target=download_thread).start()
+
+    def show_fedavg_history(self):
+        """Show complete FedAvg history from server."""
+        try:
+            response = requests.get(self.get_server_url("fedavg_history"), timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                fedavg_history = data.get("fedavg_history", [])
+                total_rounds = data.get("total_rounds", 0)
+                
+                if not fedavg_history:
+                    messagebox.showinfo("FedAvg History", "No FedAvg rounds have been executed yet.")
+                    return
+                
+                # Create detailed history message
+                message = f"📊 FedAvg History ({total_rounds} total rounds)\n"
+                message += "=" * 50 + "\n\n"
+                
+                for fedavg in fedavg_history:
+                    message += f"🔄 Round {fedavg['round']}\n"
+                    message += f"   📅 {fedavg['timestamp']}\n"
+                    message += f"   👥 {fedavg['num_clients']} clients\n"
+                    message += f"   📈 {fedavg['total_samples']} samples\n"
+                    message += f"   🎯 Accuracy: {fedavg['accuracy']:.4f}\n"
+                    message += f"   🏥 Participants: {', '.join(fedavg['participants'])}\n\n"
+                
+                # Show in a scrollable text window
+                history_window = Toplevel(self.root)
+                history_window.title("FedAvg History")
+                history_window.geometry("600x500")
+                history_window.configure(bg=self.light_bg)
+                
+                # Center the window
+                history_window.transient(self.root)
+                history_window.grab_set()
+                
+                # Title
+                title_label = Label(history_window, text="FedAvg History", 
+                                   font=("Arial", 16, "bold"), 
+                                   bg=self.light_bg, fg=self.text_color)
+                title_label.pack(pady=10)
+                
+                # Text widget for scrollable content
+                text_frame = Frame(history_window, bg="white", relief="solid", bd=1)
+                text_frame.pack(fill='both', expand=True, padx=20, pady=10)
+                
+                text_widget = Text(text_frame, wrap="word", font=("Arial", 10), 
+                                  bg="white", fg=self.text_color, relief="flat")
+                scrollbar = Scrollbar(text_frame, orient="vertical", command=text_widget.yview)
+                text_widget.configure(yscrollcommand=scrollbar.set)
+                
+                text_widget.pack(side="left", fill="both", expand=True)
+                scrollbar.pack(side="right", fill="y")
+                
+                # Insert history text
+                text_widget.insert("1.0", message)
+                text_widget.config(state="disabled")  # Make read-only
+                
+                # Close button
+                close_button = Button(history_window, text="Close", 
+                                    command=history_window.destroy,
+                                    font=("Arial", 12, "bold"), 
+                                    bg=self.accent_color, fg="white",
+                                    relief="flat", bd=0,
+                                    width=15, height=2)
+                close_button.pack(pady=10)
+                
+            else:
+                messagebox.showerror("Error", f"Server responded with status {response.status_code}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to get FedAvg history: {str(e)}")
 
 # For GUI
 if __name__ == "__main__":
