@@ -310,9 +310,64 @@ def get_fedavg_history():
         "total_rounds": fedavg_round
     })
 
-if __name__ == "__main__":
-    print("[BACKUP SERVER] Backup server is running on port 5001...")
-    print("[BACKUP SERVER] Compatible with main server FedAvg system")
+def command_listener():
+    """Listen for manual commands from console."""
+    while True:
+        try:
+            cmd = input().strip().lower()
+            if cmd == "execute":
+                execute_fedavg()
+            elif cmd == "status":
+                with lock:
+                    print(f"\n[BACKUP SERVER] Status:")
+                    print(f"  Queue size: {len(client_updates)}/{MAX_CLIENTS}")
+                    print(f"  Connected clients: {len(connected_clients)}")
+                    print(f"  Queued clients: {[client_ip for _, _, client_ip in client_updates]}")
+                    print(f"  Has global model: {os.path.exists('global_model.weights.h5')}")
+                    print(f"  Current FedAvg round: {fedavg_round}")
+                    print(f"  Timer active: {timer_active}")
+                    if timer_active:
+                        print(f"  Countdown timer: {COUNTDOWN_SECONDS} seconds")
+                    if fedavg_history:
+                        latest = fedavg_history[-1]
+                        print(f"  Latest FedAvg: Round {latest['round']} - {latest['num_clients']} clients, {latest['total_samples']} samples")
+            elif cmd == "history":
+                print(f"\n[BACKUP SERVER] FedAvg History:")
+                for fedavg in fedavg_history:
+                    print(f"  Round {fedavg['round']}: {fedavg['timestamp']} - {fedavg['num_clients']} clients, {fedavg['total_samples']} samples")
+                    print(f"    Participants: {fedavg['participants']}")
+            elif cmd == "clear":
+                with lock:
+                    client_updates.clear()
+                    stop_countdown_timer()
+                    print("[BACKUP SERVER] Cleared client update queue and stopped timer.")
+            elif cmd == "help":
+                print("\n[BACKUP SERVER] Available commands:")
+                print("  execute  - Run FedAvg on queued client updates")
+                print("  status   - Show server status and queue information")
+                print("  history  - Show complete FedAvg history")
+                print("  clear    - Clear the client update queue and stop timer")
+                print("  help     - Show this help message")
+                print("  quit     - Exit server\n")
+            elif cmd == "quit":
+                print("[BACKUP SERVER] Shutting down...")
+                os._exit(0)
+        except (EOFError, KeyboardInterrupt):
+            print("\n[BACKUP SERVER] Shutting down...")
+            os._exit(0)
+        except Exception as e:
+            print(f"[BACKUP SERVER] Command error: {e}")
+
+if __name__ == '__main__':
+    # Start command listener in a separate thread
+    command_thread = threading.Thread(target=command_listener, daemon=True)
+    command_thread.start()
+    
+    print("[BACKUP SERVER] Federated backup server is running on port 5001...")
+    print("[BACKUP SERVER] Server is accessible from other machines on the network")
+    print("[BACKUP SERVER] Clients should connect to this machine's IP address")
     print(f"[BACKUP SERVER] FedAvg will auto-execute when {MAX_CLIENTS} clients are queued")
     print(f"[BACKUP SERVER] OR when {MIN_CLIENTS_FOR_TIMER}+ clients are queued for {COUNTDOWN_SECONDS} seconds")
-    app.run(host="0.0.0.0", port=5001)
+    print("[BACKUP SERVER] Type 'help' for available commands")
+    app.run(host='0.0.0.0', port=5001)
+

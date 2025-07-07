@@ -25,7 +25,7 @@ class LCD_CNN:
         # Server configuration
         self.server_ip = "localhost"
         self.server_port = 5000
-        self.backup_server_ip = "172.16.130.201"  # or backup server IP
+        self.backup_server_ip = "localhost"  # or backup server IP
         self.backup_server_port = 5001       # or backup server port
 
         # Center the window
@@ -929,7 +929,6 @@ class LCD_CNN:
                 messagebox.showerror("Error", f"Server responded with status {response.status_code}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to get FedAvg history: {str(e)}")
-
 # For GUI
 if __name__ == "__main__":
     root=Tk()
